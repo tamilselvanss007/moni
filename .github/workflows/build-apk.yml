@@ -1,0 +1,64 @@
+name: Build TopMonitor APK from ZIP
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          ZIP_FILE=$(ls *.zip | head -n 1)
+          echo "Using zip: $ZIP_FILE"
+          mkdir -p project
+          unzip -q "$ZIP_FILE" -d project
+          GRADLEW_PATH=$(find project -name gradlew -type f | head -n 1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "gradlew not found inside the zip"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$GRADLEW_PATH")" >> $GITHUB_ENV
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: chmod +x ./gradlew
+
+      - name: Build signed release APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" TopMonitor.apk
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TopMonitor-apk
+          path: TopMonitor.apk
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: TopMonitor v1.0.${{ github.run_number }}
+          make_latest: "true"
+          files: TopMonitor.apk
